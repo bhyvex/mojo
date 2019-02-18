@@ -239,4 +239,20 @@ Mojo::IOLoop->one_tick;
 is_deeply \@errors, ['first', 'works too', 'second', 'works too'],
   'promises rejected';
 
+my ($running, $result) = (0, undef);
+Mojo::Promise->map(
+  {concurrency => 3},
+  sub {
+    my $n = $_;
+    fail 'Concurrency too high' if ++$running > 3;
+    Mojo::Promise->resolve->then(sub {
+      fail 'Concurrency too high' if $running-- > 3;
+      $n;
+    });
+  },
+  1 .. 5
+)->then(sub { @$result = @_ }, sub { fail "Error $_[0]" })->wait;
+
+is_deeply $result, [[1], [2], [3], [4], [5]], 'correct result';
+
 done_testing();

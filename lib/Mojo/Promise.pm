@@ -41,6 +41,30 @@ sub finally {
   return $new;
 }
 
+sub map {
+  my ($class, $options) = (shift, ref $_[0] eq 'HASH' ? shift : {});
+  my ($cb, @items) = @_;
+
+  my @start = map { $_->$cb } splice @items, 0,
+    $options->{concurrency} // @items;
+
+  my (@trigger, @wait);
+  for my $item (@items) {
+    my $p = $start[0]->clone;
+    push @trigger, $p;
+    push @wait, $p->then(sub { local $_ = $item; $_->$cb });
+  }
+
+  my @p = map {
+    $_->then(
+      sub { shift(@trigger)->resolve if @trigger; return @_ },
+      sub { @trigger = (); die $_[0] },
+    )
+  } (@start, @wait);
+
+  return $class->all(@p);
+}
+
 sub race {
   my ($class, @promises) = @_;
   my $new = $promises[0]->clone;
@@ -288,6 +312,37 @@ reason.
   $promise->finally(sub {
     my @value_or_reason = @_;
     say "We are done!";
+  });
+
+=head2 map
+
+  my $promise = Mojo::Promise->map(sub { ... }, @items);
+  my $promise = Mojo::Promise->map({concurrency => 3}, sub { ... }, @items);
+
+Apply a function that returns a L<Mojo::Promise> to each item in a list of
+items while optionally limiting concurrency. Returns a L<Mojo::Promise> that
+collects the results in the same manner as L</all>.
+
+Note that if any item's promise is rejected, any remaining items which have not
+yet been mapped will not be.
+
+These options are currently available:
+
+=over 2
+
+=item concurrency
+
+The maximum number of items are in progress at the same.
+
+=back
+
+C<concurrency> which specifies
+  my $promise = Mojo::Promise->map(
+    {concurrency => 3},
+    sub { $ua->get_p($_) },
+    @urls,
+  )->then(sub{
+    say $_->[0]->res->dom->at('title')->text for @_
   });
 
 =head2 race
